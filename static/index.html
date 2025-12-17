@@ -5,9 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Chatspot</title>
 
-  <!-- ⚠️ CSS LEFT 100% UNCHANGED -->
+  
   <style>
-    /* --- YOUR CSS (UNCHANGED) --- */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: "Inter", Arial, sans-serif; background: #eef1f5; height: 100vh; display: flex; justify-content: center; }
     .app { width: 100%; max-width: 900px; height: 100vh; background: #ffffff; display: flex; flex-direction: column; border-radius: 0; box-shadow: 0 8px 35px rgba(0,0,0,0.08); overflow: hidden; }
@@ -19,15 +18,13 @@
     .controls input { padding: 7px 10px; border: 1px solid #d1d6dd; border-radius: 8px; }
     .controls button { padding: 8px 12px; background: #4a74f5; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
     .messages { flex: 1; padding: 20px; overflow-y: auto; background: #f4f7fb; }
-    .msg { max-width: 70%; padding: 12px 14px; margin-bottom: 14px; background: #ffffff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); animation: fadeIn 0.2s ease; }
+    .msg { max-width: 70%; padding: 12px 14px; margin-bottom: 14px; background: #ffffff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
     .msg.me { margin-left: auto; background: #dbe7ff; }
     .sender { font-size: 12px; color: #666; margin-bottom: 4px; }
     .msg pre { white-space: pre-wrap; font-size: 15px; }
     .compose { padding: 14px; background: #fff; border-top: 1px solid #dfe3eb; display: flex; gap: 10px; position: sticky; bottom: 0; }
-    .compose input[type="text"] { flex: 1; padding: 12px 14px; font-size: 15px; border: 1px solid #c8ced6; border-radius: 10px; }
+    .compose input { flex: 1; padding: 12px 14px; font-size: 15px; border: 1px solid #c8ced6; border-radius: 10px; }
     .compose button { padding: 12px 18px; background: #4a74f5; color: white; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; }
-    .compose button:hover { background: #3c63e1; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
   </style>
 </head>
 
@@ -36,33 +33,27 @@
     <header>
       <h1>Chatsport</h1>
       <div class="user-edit">
-        <input id="userId" placeholder="username"/>
+        <input id="userId" placeholder="username">
         <button id="connectBtn">Save</button>
       </div>
     </header>
 
-    <main>
-      <div class="controls">
-        Conversation ID:
-        <input id="conversationId"/>
-        <button id="joinBtn">Join</button>
-        <span id="status">disconnected</span>
-      </div>
+    <div class="controls">
+      Conversation ID:
+      <input id="conversationId">
+      <button id="joinBtn">Join</button>
+      <span id="status">disconnected</span>
+    </div>
 
-      <div id="chat" class="messages"></div>
+    <div id="chat" class="messages"></div>
 
-      <div class="compose">
-        <input id="msgInput" placeholder="Type a message"/>
-        <button id="sendBtn">Send</button>
-      </div>
-    </main>
+    <div class="compose">
+      <input id="msgInput" placeholder="Type a message">
+      <button id="sendBtn">Send</button>
+    </div>
   </div>
 
-  <!-- ✅ LOAD LOCAL LIBSODIUM FIRST -->
-  <script src="/libsodium.js"></script>
-
-  <!-- ✅ LOAD APP JS (NOT MODULE) -->
+  
   <script src="/app.js"></script>
-
 </body>
 </html>
