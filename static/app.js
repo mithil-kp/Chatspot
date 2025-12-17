@@ -1,11 +1,15 @@
 // ===============================
-// Chat E2EE – FIXED app.js
+// FINAL WORKING E2EE app.js
 // ===============================
 
-// This file assumes libsodium is already loaded as window.sodium
-// (via local libsodium.js or CDN loader)
+window.addEventListener("load", async () => {
 
-(async () => {
+  // ---- HARD SAFETY CHECK ----
+  if (!window.sodium) {
+    alert("libsodium not loaded. Check public/libsodium.js");
+    return;
+  }
+
   const sodium = window.sodium;
   await sodium.ready;
 
@@ -18,139 +22,107 @@
     from_base64
   } = sodium;
 
-  // ---------- DOM ----------
-  const connectBtn = document.getElementById("connectBtn");
-  const sendBtn = document.getElementById("sendBtn");
-  const joinBtn = document.getElementById("joinBtn") || null;
-
+  // DOM
   const userIdInput = document.getElementById("userId");
-  const peerIdInput = document.getElementById("peerId") || null;
-  const roomInput = document.getElementById("conversationId") || document.getElementById("roomId");
-
+  const roomInput = document.getElementById("conversationId");
+  const connectBtn = document.getElementById("connectBtn");
+  const joinBtn = document.getElementById("joinBtn");
+  const sendBtn = document.getElementById("sendBtn");
   const msgInput = document.getElementById("msgInput");
-  const chatBox = document.getElementById("chat");
-  const statusEl = document.getElementById("status");
+  const chat = document.getElementById("chat");
+  const status = document.getElementById("status");
 
-  // ---------- STATE ----------
   let ws = null;
-  let roomId = null;
-  let roomKey = null; // Uint8Array(32)
+  let roomKey = null;
 
-  // ---------- HELPERS ----------
-  function log(text, cls = "") {
-    const div = document.createElement("div");
-    div.className = "msg " + cls;
-    div.textContent = text;
-    chatBox.appendChild(div);
-    chatBox.scrollTop = chatBox.scrollHeight;
-  }
-
-  function setStatus(s) {
-    if (statusEl) statusEl.textContent = s;
+  function log(msg, cls="") {
+    const d = document.createElement("div");
+    d.className = cls;
+    d.textContent = msg;
+    chat.appendChild(d);
+    chat.scrollTop = chat.scrollHeight;
   }
 
   function wsUrl() {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    return `${proto}://${location.host}/ws`;
+    return (location.protocol === "https:" ? "wss" : "ws")
+      + "://" + location.host + "/ws";
   }
 
-  // ---------- ROOM KEY (PERSISTENT) ----------
-  function loadOrCreateRoomKey(roomId) {
-    const k = localStorage.getItem("roomkey_" + roomId);
+  function loadRoomKey(room) {
+    const k = localStorage.getItem("roomkey_" + room);
     if (k) return from_base64(k);
 
-    const newKey = randombytes_buf(32);
-    localStorage.setItem("roomkey_" + roomId, to_base64(newKey));
-    return newKey;
+    const key = randombytes_buf(32);
+    localStorage.setItem("roomkey_" + room, to_base64(key));
+    return key;
   }
 
-  // ---------- CONNECT ----------
   connectBtn.onclick = () => {
-    const userId = userIdInput.value.trim();
-    if (!userId) return alert("Enter user id");
+    const user = userIdInput.value.trim();
+    if (!user) return alert("Enter user");
 
     ws = new WebSocket(wsUrl());
-    setStatus("connecting…");
+    status.textContent = "connecting...";
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "auth", userId }));
-      setStatus("connected");
-      log(`Connected as ${userId}`, "me");
+      ws.send(JSON.stringify({ type: "auth", userId: user }));
+      status.textContent = "connected";
+      log("Connected as " + user, "meta");
     };
 
-    ws.onmessage = (ev) => {
-      let msg;
-      try { msg = JSON.parse(ev.data); } catch { return; }
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
 
-      // -------- INCOMING MESSAGE --------
       if (msg.type === "message") {
         try {
-          const ciphertext = from_base64(msg.ciphertext);
-          const nonce = from_base64(msg.nonce);
-
-          const plain = crypto_secretbox_open_easy(
-            ciphertext,
-            nonce,
+          const text = crypto_secretbox_open_easy(
+            from_base64(msg.ciphertext),
+            from_base64(msg.nonce),
             roomKey
           );
-
-          const text = new TextDecoder().decode(plain);
-          log(`${msg.from}: ${text}`, "peer");
-
-        } catch (e) {
-          log(`[decrypt failed — showing ciphertext]\n${msg.ciphertext}`, "meta");
+          log(msg.from + ": " + new TextDecoder().decode(text), "peer");
+        } catch {
+          log("[decrypt failed] " + msg.ciphertext, "meta");
         }
       }
     };
 
-    ws.onclose = () => setStatus("disconnected");
-    ws.onerror = () => setStatus("error");
+    ws.onerror = () => status.textContent = "error";
+    ws.onclose = () => status.textContent = "disconnected";
   };
 
-  // ---------- JOIN ROOM ----------
-  if (joinBtn) {
-    joinBtn.onclick = () => {
-      roomId = roomInput.value.trim();
-      if (!roomId) return alert("Enter conversation ID");
+  joinBtn.onclick = () => {
+    const room = roomInput.value.trim();
+    if (!room) return alert("Enter room");
 
-      roomKey = loadOrCreateRoomKey(roomId);
-      log(`Joined room: ${roomId}`, "meta");
+    roomKey = loadRoomKey(room);
+    log("Joined room: " + room, "meta");
 
-      ws.send(JSON.stringify({
-        type: "join",
-        roomId
-      }));
-    };
-  }
+    ws.send(JSON.stringify({ type: "join", roomId: room }));
+  };
 
-  // ---------- SEND MESSAGE ----------
   sendBtn.onclick = () => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return alert("Not connected");
-    }
-    if (!roomKey) return alert("Join a room first");
+    if (!roomKey) return alert("Join room first");
 
     const text = msgInput.value;
     if (!text) return;
 
     const nonce = randombytes_buf(crypto_secretbox_NONCEBYTES);
-    const plaintext = new TextEncoder().encode(text);
-
-    const ciphertext = crypto_secretbox_easy(
-      plaintext,
+    const cipher = crypto_secretbox_easy(
+      new TextEncoder().encode(text),
       nonce,
       roomKey
     );
 
     ws.send(JSON.stringify({
       type: "send_message",
-      roomId,
-      ciphertext: to_base64(ciphertext),
+      roomId: roomInput.value.trim(),
+      ciphertext: to_base64(cipher),
       nonce: to_base64(nonce)
     }));
 
-    log(`me: ${text}`, "me");
+    log("me: " + text, "me");
     msgInput.value = "";
   };
 
-})();
+});
