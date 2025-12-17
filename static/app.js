@@ -1,128 +1,129 @@
 // ===============================
-// FINAL WORKING E2EE app.js
+// Chatspot – Web Crypto E2EE
 // ===============================
 
-window.addEventListener("load", async () => {
+const enc = new TextEncoder();
+const dec = new TextDecoder();
 
-  // ---- HARD SAFETY CHECK ----
-  if (!window.sodium) {
-    alert("libsodium not loaded. Check public/libsodium.js");
-    return;
-  }
+let ws = null;
+let roomKey = null;
 
-  const sodium = window.sodium;
-  await sodium.ready;
+// ---------- DOM ----------
+const userId = document.getElementById("userId");
+const connectBtn = document.getElementById("connectBtn");
+const joinBtn = document.getElementById("joinBtn");
+const sendBtn = document.getElementById("sendBtn");
+const msgInput = document.getElementById("msgInput");
+const chat = document.getElementById("chat");
+const statusEl = document.getElementById("status");
+const roomInput = document.getElementById("conversationId");
 
-  const {
-    randombytes_buf,
-    crypto_secretbox_easy,
-    crypto_secretbox_open_easy,
-    crypto_secretbox_NONCEBYTES,
-    to_base64,
-    from_base64
-  } = sodium;
+// ---------- HELPERS ----------
+function log(text, me=false) {
+  const div = document.createElement("div");
+  div.className = "msg" + (me ? " me" : "");
+  div.innerHTML = `<pre>${text}</pre>`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
 
-  // DOM
-  const userIdInput = document.getElementById("userId");
-  const roomInput = document.getElementById("conversationId");
-  const connectBtn = document.getElementById("connectBtn");
-  const joinBtn = document.getElementById("joinBtn");
-  const sendBtn = document.getElementById("sendBtn");
-  const msgInput = document.getElementById("msgInput");
-  const chat = document.getElementById("chat");
-  const status = document.getElementById("status");
+function wsUrl() {
+  const p = location.protocol === "https:" ? "wss" : "ws";
+  return `${p}://${location.host}/ws`;
+}
 
-  let ws = null;
-  let roomKey = null;
-
-  function log(msg, cls="") {
-    const d = document.createElement("div");
-    d.className = cls;
-    d.textContent = msg;
-    chat.appendChild(d);
-    chat.scrollTop = chat.scrollHeight;
-  }
-
-  function wsUrl() {
-    return (location.protocol === "https:" ? "wss" : "ws")
-      + "://" + location.host + "/ws";
-  }
-
-  function loadRoomKey(room) {
-    const k = localStorage.getItem("roomkey_" + room);
-    if (k) return from_base64(k);
-
-    const key = randombytes_buf(32);
-    localStorage.setItem("roomkey_" + room, to_base64(key));
-    return key;
-  }
-
-  connectBtn.onclick = () => {
-    const user = userIdInput.value.trim();
-    if (!user) return alert("Enter user");
-
-    ws = new WebSocket(wsUrl());
-    status.textContent = "connecting...";
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "auth", userId: user }));
-      status.textContent = "connected";
-      log("Connected as " + user, "meta");
-    };
-
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-
-      if (msg.type === "message") {
-        try {
-          const text = crypto_secretbox_open_easy(
-            from_base64(msg.ciphertext),
-            from_base64(msg.nonce),
-            roomKey
-          );
-          log(msg.from + ": " + new TextDecoder().decode(text), "peer");
-        } catch {
-          log("[decrypt failed] " + msg.ciphertext, "meta");
-        }
-      }
-    };
-
-    ws.onerror = () => status.textContent = "error";
-    ws.onclose = () => status.textContent = "disconnected";
-  };
-
-  joinBtn.onclick = () => {
-    const room = roomInput.value.trim();
-    if (!room) return alert("Enter room");
-
-    roomKey = loadRoomKey(room);
-    log("Joined room: " + room, "meta");
-
-    ws.send(JSON.stringify({ type: "join", roomId: room }));
-  };
-
-  sendBtn.onclick = () => {
-    if (!roomKey) return alert("Join room first");
-
-    const text = msgInput.value;
-    if (!text) return;
-
-    const nonce = randombytes_buf(crypto_secretbox_NONCEBYTES);
-    const cipher = crypto_secretbox_easy(
-      new TextEncoder().encode(text),
-      nonce,
-      roomKey
+// ---------- KEY HANDLING ----------
+async function loadOrCreateRoomKey(room) {
+  const saved = localStorage.getItem("roomkey_" + room);
+  if (saved) {
+    return crypto.subtle.importKey(
+      "raw",
+      Uint8Array.from(atob(saved), c => c.charCodeAt(0)),
+      "AES-GCM",
+      false,
+      ["encrypt", "decrypt"]
     );
+  }
 
-    ws.send(JSON.stringify({
-      type: "send_message",
-      roomId: roomInput.value.trim(),
-      ciphertext: to_base64(cipher),
-      nonce: to_base64(nonce)
-    }));
+  const key = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
+  );
 
-    log("me: " + text, "me");
-    msgInput.value = "";
+  const raw = await crypto.subtle.exportKey("raw", key);
+  localStorage.setItem(
+    "roomkey_" + room,
+    btoa(String.fromCharCode(...new Uint8Array(raw)))
+  );
+  return key;
+}
+
+// ---------- CONNECT ----------
+connectBtn.onclick = () => {
+  if (!userId.value) return alert("Enter username");
+
+  ws = new WebSocket(wsUrl());
+  statusEl.textContent = "connecting…";
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: "auth", userId: userId.value }));
+    statusEl.textContent = "connected";
+    log("Connected as " + userId.value);
   };
 
-});
+  ws.onmessage = async (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg.type === "message") {
+      try {
+        const iv = Uint8Array.from(atob(msg.iv), c => c.charCodeAt(0));
+        const data = Uint8Array.from(atob(msg.cipher), c => c.charCodeAt(0));
+
+        const plain = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv },
+          roomKey,
+          data
+        );
+        log(msg.from + ": " + dec.decode(plain));
+      } catch {
+        log("[decrypt failed]");
+      }
+    }
+  };
+
+  ws.onclose = () => statusEl.textContent = "disconnected";
+};
+
+// ---------- JOIN ROOM ----------
+joinBtn.onclick = async () => {
+  const room = roomInput.value.trim();
+  if (!room) return alert("Enter conversation ID");
+
+  roomKey = await loadOrCreateRoomKey(room);
+  ws.send(JSON.stringify({ type: "join", roomId: room }));
+  log("Joined room: " + room);
+};
+
+// ---------- SEND ----------
+sendBtn.onclick = async () => {
+  if (!roomKey) return alert("Join room first");
+  if (!msgInput.value) return;
+
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const cipher = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    roomKey,
+    enc.encode(msgInput.value)
+  );
+
+  ws.send(JSON.stringify({
+    type: "send_message",
+    roomId: roomInput.value,
+    cipher: btoa(String.fromCharCode(...new Uint8Array(cipher))),
+    iv: btoa(String.fromCharCode(...iv))
+  }));
+
+  log("me: " + msgInput.value, true);
+  msgInput.value = "";
+};
